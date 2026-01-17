@@ -112,3 +112,22 @@ class WorkerDB:
         SELECT id, status FROM workers WHERE email=?
         """, (email,))
         return self.cursor.fetchone()
+
+    def get_approved_workers(self):
+        """Get all approved workers for users to book appointments"""
+        self.cursor.execute("""
+        SELECT id, full_name, specialization, experience
+        FROM workers
+        WHERE status='approved' AND service='healthcare'
+        ORDER BY full_name
+        """)
+        rows = self.cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "full_name": row[1],
+                "specialization": row[2],
+                "experience": row[3]
+            }
+            for row in rows
+        ]
