@@ -1,0 +1,73 @@
+===========================================
+FILES TO SHARE WITH YOUR FRIEND
+===========================================
+
+✅ COPY ALL THESE FILES:
+
+CORE FILES (REQUIRED):
+----------------------
+✓ app.py
+✓ cli.py
+✓ config.py
+✓ requirements.txt
+
+DATABASE FILES (REQUIRED):
+--------------------------
+✓ user_db.py
+✓ worker_db.py
+✓ appointment_db.py
+✓ message_db.py
+✓ availability_db.py
+
+AUTH & SERVICES (REQUIRED):
+----------------------------
+✓ auth_utils.py
+✓ otp_service.py
+✓ email_service.py
+
+DOCUMENTATION (HELPFUL):
+------------------------
+✓ README.md
+✓ START_HERE.md
+✓ SETUP_CHECKLIST.md
+✓ ANDROID_READY.md
+✓ SHARE_WITH_FRIEND.md
+
+OPTIONAL FILES (Can include):
+------------------------------
+✓ healthcare_db.py
+✓ worker_healthcare.py
+✓ user_service.py
+✓ otp_db.py
+
+===========================================
+DO NOT SHARE:
+===========================================
+✗ data/ folder (will be created automatically)
+✗ uploads/ folder (will be created automatically)
+✗ venv/ folder (friend creates own)
+✗ __pycache__/ folder (Python cache)
+✗ *.pyc files (compiled Python)
+
+===========================================
+QUICK SHARING:
+===========================================
+1. Select all files listed above
+2. Create ZIP file
+3. Send to friend
+4. Friend extracts and follows START_HERE.md
+
+===========================================
+YOUR FRIEND NEEDS:
+===========================================
+1. Python 3.7+ installed
+2. All files in ONE folder
+3. Run: pip install -r requirements.txt
+4. Run: python app.py (Terminal 1)
+5. Run: python cli.py (Terminal 2)
+
+===========================================
+✅ YES - IT WILL RUN!
+===========================================
+All files are portable and will work on any PC
+with Python installed. No special setup needed!

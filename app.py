@@ -6,6 +6,7 @@ from appointment_db import AppointmentDB
 from user_db import UserDB
 from worker_db import WorkerDB
 from message_db import MessageDB
+from availability_db import AvailabilityDB
 from auth_utils import generate_token, verify_token
 from otp_service import send_otp, verify_otp
 
@@ -18,6 +19,7 @@ user_db = UserDB()
 worker_db = WorkerDB()
 appt_db = AppointmentDB()
 message_db = MessageDB()
+availability_db = AvailabilityDB()
 
 
 # ================= USER AUTH =================
@@ -98,7 +100,9 @@ def healthcare_worker_signup():
         data["phone"],
         "healthcare",
         data["specialization"],
-        data["experience"]
+        data["experience"],
+        data.get("clinic_location", ""),
+        data.get("rating", 0.0)
     )
 
     return jsonify({
@@ -164,6 +168,72 @@ def get_available_workers():
     workers = worker_db.get_approved_workers()
     return jsonify({"workers": workers}), 200
 
+@app.route("/healthcare/specializations", methods=["GET"])
+def get_specializations():
+    """Get all available medical specializations"""
+    specializations = worker_db.get_all_specializations()
+    return jsonify({"specializations": specializations}), 200
+
+@app.route("/healthcare/doctors/<specialization>", methods=["GET"])
+def get_doctors_by_specialization(specialization):
+    """Get doctors filtered by specialization"""
+    doctors = worker_db.get_workers_by_specialization(specialization)
+    return jsonify({"doctors": doctors}), 200
+
+@app.route("/healthcare/search", methods=["GET"])
+def search_doctors():
+    """Search doctors by name, specialization, or location"""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Search query required"}), 400
+    doctors = worker_db.search_workers(query)
+    return jsonify({"doctors": doctors}), 200
+
+@app.route("/healthcare/ai-care", methods=["POST"])
+def ai_care_symptom_checker():
+    """AI Care: Rule-based symptom checker that suggests specialization"""
+    data = request.json
+    symptoms = data.get("symptoms", "").lower()
+    
+    # Rule-based symptom matching
+    symptom_keywords = {
+        "dentist": ["tooth", "teeth", "gum", "dental", "cavity", "toothache", "oral"],
+        "cardiologist": ["chest", "heart", "cardiac", "blood pressure", "bp", "palpitation"],
+        "eye specialist": ["eye", "vision", "sight", "glasses", "blur", "red eye"],
+        "ent": ["ear", "nose", "throat", "hearing", "sinus", "allergy"],
+        "orthopedic": ["bone", "joint", "fracture", "knee", "shoulder", "back pain"],
+        "dermatologist": ["skin", "rash", "acne", "hair", "nail", "dermatology"],
+        "neurologist": ["headache", "migraine", "brain", "seizure", "neurological"],
+        "psychiatrist": ["mental", "depression", "anxiety", "stress", "psychology"],
+        "gynecologist": ["women", "pregnancy", "menstrual", "gynec", "female"],
+        "pediatrician": ["child", "baby", "infant", "pediatric", "kids"],
+        "general physician": ["fever", "cold", "cough", "general", "common"]
+    }
+    
+    matched_specializations = []
+    for spec, keywords in symptom_keywords.items():
+        if any(keyword in symptoms for keyword in keywords):
+            matched_specializations.append(spec)
+    
+    # Get top 2-3 doctors for matched specializations
+    suggested_doctors = []
+    for spec in matched_specializations[:3]:  # Top 3 specializations
+        doctors = worker_db.get_workers_by_specialization(spec)
+        suggested_doctors.extend(doctors[:2])  # Top 2 doctors per specialization
+    
+    # For backward compatibility with existing CLI:
+    suggested_specializations = matched_specializations[:3]
+    top_doctors = suggested_doctors[:3]  # Top 3 doctors total
+
+    return jsonify({
+        # New keys as per spec
+        "suggested_specialization": suggested_specializations[0] if suggested_specializations else None,
+        "recommended_doctors": top_doctors,
+        # Existing keys kept so current CLI continues to work
+        "suggested_specializations": suggested_specializations,
+        "suggested_doctors": top_doctors
+    }), 200
+
 @app.route("/admin/worker/approve/<int:worker_id>", methods=["POST"])
 def approve(worker_id):
     worker_db.approve_worker(worker_id)
@@ -192,7 +262,8 @@ def book_appointment():
         data["worker_id"],
         data["user_name"],
         data["symptoms"],
-        data["date"]
+        data["date"],
+        data.get("appointment_type", "clinic")
     )
     return jsonify({"msg": "Appointment requested", "id": appt_id}), 201
 
@@ -441,6 +512,101 @@ def get_messages(appointment_id):
         "appointment_id": appointment_id,
         "messages": messages
     }), 200
+
+# ================= WORKER AVAILABILITY =================
+
+@app.route("/worker/<int:worker_id>/availability", methods=["GET"])
+def get_worker_availability(worker_id):
+    """Get availability for a worker"""
+    date = request.args.get("date")
+    availability = availability_db.get_availability(worker_id, date)
+    return jsonify({"availability": availability}), 200
+
+@app.route("/worker/<int:worker_id>/availability", methods=["POST"])
+def set_worker_availability(worker_id):
+    """Set availability for a worker"""
+    data = request.json
+    date = data.get("date")
+    time_slot = data.get("time_slot")
+    
+    if not date or not time_slot:
+        return jsonify({"error": "date and time_slot required"}), 400
+    
+    availability_db.set_availability(worker_id, date, time_slot)
+    return jsonify({"msg": "Availability set successfully"}), 200
+
+@app.route("/worker/<int:worker_id>/availability", methods=["DELETE"])
+def remove_worker_availability(worker_id):
+    """Remove availability for a worker"""
+    data = request.json
+    date = data.get("date")
+    time_slot = data.get("time_slot")
+    
+    if not date or not time_slot:
+        return jsonify({"error": "date and time_slot required"}), 400
+    
+    availability_db.remove_availability(worker_id, date, time_slot)
+    return jsonify({"msg": "Availability removed successfully"}), 200
+
+# ================= WORKER DASHBOARD STATS =================
+
+@app.route("/worker/<int:worker_id>/dashboard/stats", methods=["GET"])
+def get_worker_dashboard_stats(worker_id):
+    """Get dashboard statistics for worker"""
+    from datetime import datetime, date
+    
+    # Get all appointments
+    appointments = appt_db.get_worker_appointments(worker_id)
+    
+    # Count pending requests
+    pending_count = sum(1 for apt in appointments if apt['status'] == 'pending')
+    
+    # Get today's appointments
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_appointments = [apt for apt in appointments if apt['booking_date'] == today]
+    
+    # Get accepted appointments
+    accepted_appointments = [apt for apt in appointments if apt['status'] in ['accepted', 'in_consultation']]
+    
+    return jsonify({
+        "pending_requests": pending_count,
+        "today_appointments": len(today_appointments),
+        "today_appointments_list": today_appointments[:5],  # Top 5
+        "accepted_appointments": len(accepted_appointments),
+        "total_appointments": len(appointments)
+    }), 200
+
+@app.route("/worker/<int:worker_id>/status", methods=["GET"])
+def get_worker_status(worker_id):
+    """Get worker online/offline status"""
+    # For now, default to online. Can be enhanced with real-time status tracking
+    return jsonify({"status": "online"}), 200
+
+@app.route("/worker/<int:worker_id>/status", methods=["POST"])
+def set_worker_status(worker_id):
+    """Set worker online/offline status"""
+    data = request.json
+    status = data.get("status", "online")
+    
+    if status not in ["online", "offline"]:
+        return jsonify({"error": "Status must be 'online' or 'offline'"}), 400
+    
+    # Store status (can be enhanced with database storage)
+    return jsonify({"msg": f"Status set to {status}", "status": status}), 200
+
+@app.route("/worker/<int:worker_id>/requests", methods=["GET"])
+def get_worker_pending_requests(worker_id):
+    """Get pending appointment requests for worker"""
+    appointments = appt_db.get_worker_appointments(worker_id)
+    pending_requests = [apt for apt in appointments if apt['status'] == 'pending']
+    return jsonify({"requests": pending_requests}), 200
+
+@app.route("/worker/<int:worker_id>/accepted-appointments", methods=["GET"])
+def get_worker_accepted_appointments(worker_id):
+    """Get accepted and in_consultation appointments"""
+    appointments = appt_db.get_worker_appointments(worker_id)
+    accepted = [apt for apt in appointments if apt['status'] in ['accepted', 'in_consultation', 'completed']]
+    return jsonify({"appointments": accepted}), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
